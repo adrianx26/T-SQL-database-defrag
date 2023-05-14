@@ -1,0 +1,52 @@
+USE BPS_Content;
+-- BPS_Content is the name of the database
+
+DECLARE @TableName NVARCHAR(128);
+DECLARE @IndexName NVARCHAR(128);
+DECLARE @Fragmentation FLOAT;
+DECLARE @SQL NVARCHAR(MAX);
+
+DECLARE FragmentedIndexes CURSOR FOR
+SELECT 
+    OBJECT_NAME(ps.object_id) AS TableName,
+    idx.name AS IndexName,
+    ps.avg_fragmentation_in_percent
+FROM 
+    sys.dm_db_index_physical_stats(DB_ID('BPS_Content'), NULL, NULL, NULL, 'DETAILED') AS ps
+JOIN 
+    sys.indexes AS idx ON ps.object_id = idx.object_id AND ps.index_id = idx.index_id
+WHERE 
+    ps.index_level = 0
+    AND ps.avg_fragmentation_in_percent > 30
+    -- this set the maxim avg_fragmentation as %
+    AND idx.name IS NOT NULL; -- an secound condition
+
+OPEN FragmentedIndexes;
+
+FETCH NEXT FROM FragmentedIndexes INTO @TableName, @IndexName, @Fragmentation;
+
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @SQL = N'ALTER INDEX ' + QUOTENAME(@IndexName) + N' ON ' + QUOTENAME(@TableName) + N' REORGANIZE';
+    EXEC sp_executesql @SQL;
+
+    FETCH NEXT FROM FragmentedIndexes INTO @TableName, @IndexName, @Fragmentation;
+END;
+
+CLOSE FragmentedIndexes;
+DEALLOCATE FragmentedIndexes;
+
+-- Recheck fragmentation and display it
+SELECT 
+    OBJECT_NAME(ps.object_id) AS TableName,
+    idx.name AS IndexName,
+    ps.avg_fragmentation_in_percent
+FROM 
+    sys.dm_db_index_physical_stats(DB_ID('BPS_Content'), NULL, NULL, NULL, 'DETAILED') AS ps
+JOIN 
+    sys.indexes AS idx ON ps.object_id = idx.object_id AND ps.index_id = idx.index_id
+WHERE 
+    ps.index_level = 0
+    AND ps.avg_fragmentation_in_percent > 3
+    -- under this procent the avg_fragmentation will not be displayed, set 0 or comment the line if you want to see all tables / indexes
+    AND idx.name IS NOT NULL; -- secound condition
